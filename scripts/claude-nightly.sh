@@ -24,12 +24,14 @@ mkdir -p "$STATE_DIR" "$LOG_DIR"
 # Prevent idle sleep for this script's lifetime
 caffeinate -i -w $$ &
 
+CLAUDE_PID=""
 cleanup() {
     local exit_code=$?
-    # Kill caffeinate background job
-    kill %1 2>/dev/null || true
-    # Stop any in-flight claude process in the container
+    # Kill the background docker exec + claude process
+    [[ -n "$CLAUDE_PID" ]] && kill "$CLAUDE_PID" 2>/dev/null || true
     docker exec "$CONTAINER_NAME" pkill -f "claude" 2>/dev/null || true
+    # Kill caffeinate
+    kill %1 2>/dev/null || true
     echo "{\"ts\":\"$TIMESTAMP\",\"exit\":$exit_code}" \
         >> "${STATE_DIR}/run_history.jsonl"
     echo "[$(date)] Cleaned up (exit code: $exit_code)"
@@ -125,14 +127,28 @@ echo "[$(date)] Starting nightly run"
 echo "  Budget spent today: \$$TODAYS_SPEND / \$$DAILY_BUDGET"
 echo "  Max turns: $MAX_TURNS | Max budget: \$$MAX_BUDGET"
 
-timeout ${MAX_RUNTIME} docker exec "$CONTAINER_NAME" \
+# Run in background so Ctrl+C can kill this script immediately
+docker exec "$CONTAINER_NAME" \
     claude -p "$PROMPT" \
         --output-format json \
         --max-turns "$MAX_TURNS" \
         --max-budget-usd "$MAX_BUDGET" \
         --dangerously-skip-permissions \
         --model claude-opus-4-6 \
-    > "$RUN_LOG" 2>> "${LOG_DIR}/stderr.log" || true
+    > "$RUN_LOG" 2>> "${LOG_DIR}/stderr.log" &
+CLAUDE_PID=$!
+
+# Wait with timeout — if interrupted, cleanup trap handles killing
+SECONDS=0
+while kill -0 "$CLAUDE_PID" 2>/dev/null; do
+    if [[ $SECONDS -ge $MAX_RUNTIME ]]; then
+        echo "[$(date)] Max runtime (${MAX_RUNTIME}s) reached. Killing."
+        kill "$CLAUDE_PID" 2>/dev/null || true
+        break
+    fi
+    sleep 1
+done
+wait "$CLAUDE_PID" 2>/dev/null || true
 
 # ── Parse and persist results ──────────────────────────────
 if [[ -s "$RUN_LOG" ]]; then
