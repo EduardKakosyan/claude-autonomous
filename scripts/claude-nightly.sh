@@ -29,7 +29,7 @@ cleanup() {
     local exit_code=$?
     # Kill the background docker exec + claude process
     [[ -n "$CLAUDE_PID" ]] && kill "$CLAUDE_PID" 2>/dev/null || true
-    docker exec "$CONTAINER_NAME" pkill -f "claude" 2>/dev/null || true
+    docker exec "$CONTAINER_NAME" sh -c 'kill $(ps aux | grep claude | grep -v grep | awk "{print \$2}")' 2>/dev/null || true
     # Kill caffeinate
     kill %1 2>/dev/null || true
     echo "{\"ts\":\"$TIMESTAMP\",\"exit\":$exit_code}" \

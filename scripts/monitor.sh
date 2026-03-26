@@ -34,7 +34,7 @@ while true; do
     fi
 
     # ── Claude process status ────────────────────────────
-    CLAUDE_PID=$(docker exec "$CONTAINER" pgrep -f "claude" 2>/dev/null || true)
+    CLAUDE_PID=$(docker exec "$CONTAINER" ps aux 2>/dev/null | grep -v grep | grep "claude" | awk '{print $2}' | head -1 || true)
     if [[ -n "$CLAUDE_PID" ]]; then
         echo -e "${GREEN}Claude:${NC}    active (PID $CLAUDE_PID)"
     else
