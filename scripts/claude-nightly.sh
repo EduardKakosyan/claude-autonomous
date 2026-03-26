@@ -136,16 +136,17 @@ echo "  Budget spent today: \$$TODAYS_SPEND / \$$DAILY_BUDGET"
 echo "  Max turns: $MAX_TURNS | Max budget: \$$MAX_BUDGET"
 
 # Run in background so Ctrl+C can kill this script immediately
+# Stream JSON for live monitoring; final result parsed from last line
+STREAM_LOG="${LOG_DIR}/stream_${TIMESTAMP}.jsonl"
 docker exec "$CONTAINER_NAME" \
     claude -p "$PROMPT" \
-        --bare \
-        --output-format json \
+        --output-format stream-json \
         --max-turns "$MAX_TURNS" \
         --max-budget-usd "$MAX_BUDGET" \
         --dangerously-skip-permissions \
         --no-session-persistence \
         --model claude-opus-4-6 \
-    > "$RUN_LOG" 2>> "${LOG_DIR}/stderr.log" &
+    > "$STREAM_LOG" 2>> "${LOG_DIR}/stderr.log" &
 CLAUDE_PID=$!
 
 # Wait with timeout — if interrupted, cleanup trap handles killing
@@ -161,6 +162,12 @@ done
 wait "$CLAUDE_PID" 2>/dev/null || true
 
 # ── Parse and persist results ──────────────────────────────
+# Extract final result line from stream-json output
+if [[ -s "$STREAM_LOG" ]]; then
+    # Last line with "type":"result" is the final summary
+    grep '"type":"result"' "$STREAM_LOG" | tail -1 > "$RUN_LOG" 2>/dev/null || true
+fi
+
 if [[ -s "$RUN_LOG" ]]; then
     COST=$(jq -r '.total_cost_usd // 0' "$RUN_LOG")
     SESSION=$(jq -r '.session_id // "unknown"' "$RUN_LOG")

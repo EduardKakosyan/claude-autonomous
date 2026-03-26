@@ -110,6 +110,33 @@ while true; do
         done
     fi
 
+    # ── Live agent activity ────────────────────────────────
+    LATEST_STREAM=$(ls -t "$LOG_DIR"/stream_*.jsonl 2>/dev/null | head -1)
+    if [[ -n "$LATEST_STREAM" && -s "$LATEST_STREAM" ]]; then
+        echo ""
+        echo -e "${BOLD}Agent activity:${NC}"
+        # Show last few tool uses and assistant messages
+        tail -20 "$LATEST_STREAM" 2>/dev/null | while IFS= read -r line; do
+            TYPE=$(echo "$line" | jq -r '.type // empty' 2>/dev/null)
+            if [[ "$TYPE" == "assistant" ]]; then
+                # Show tool use names
+                TOOLS=$(echo "$line" | jq -r '.message.content[]? | select(.type=="tool_use") | .name' 2>/dev/null | tr '\n' ', ' | sed 's/,$//')
+                if [[ -n "$TOOLS" ]]; then
+                    echo -e "  ${CYAN}▸ Using: $TOOLS${NC}"
+                fi
+                # Show text output (truncated)
+                TEXT=$(echo "$line" | jq -r '.message.content[]? | select(.type=="text") | .text' 2>/dev/null | head -2 | cut -c1-100)
+                if [[ -n "$TEXT" ]]; then
+                    echo -e "  ${DIM}$TEXT${NC}"
+                fi
+            elif [[ "$TYPE" == "result" ]]; then
+                TURNS=$(echo "$line" | jq -r '.num_turns // "?"' 2>/dev/null)
+                COST=$(echo "$line" | jq -r '.total_cost_usd // "?"' 2>/dev/null)
+                echo -e "  ${GREEN}✓ Finished: $TURNS turns, \$$COST${NC}"
+            fi
+        done
+    fi
+
     # ── Stderr tail ──────────────────────────────────────
     if [[ -f "$LOG_DIR/stderr.log" ]]; then
         RECENT_ERR=$(tail -3 "$LOG_DIR/stderr.log" 2>/dev/null | grep -v "^$")
