@@ -1,0 +1,13 @@
+# Project workspace (separate repo, bind-mounted)
+workspace/
+
+# Runtime state
+scripts/state/
+logs/
+
+# macOS
+.DS_Store
+
+# IDE
+.devcontainer/
+.vscode/
