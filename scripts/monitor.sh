@@ -74,14 +74,22 @@ while true; do
         echo -e "  ${GREEN}●${NC} $line"
     done || echo -e "  ${DIM}(none in last 12h)${NC}"
 
-    # ── Uncommitted changes ──────────────────────────────
-    CHANGES=$(cd "$WORKSPACE" 2>/dev/null && git diff --stat 2>/dev/null)
-    if [[ -n "$CHANGES" ]]; then
-        echo ""
-        echo -e "${BOLD}Working changes:${NC}"
-        echo "$CHANGES" | head -10 | while read -r line; do
-            echo -e "  ${YELLOW}~${NC} $line"
+    # ── Uncommitted + untracked changes ────────────────────
+    echo ""
+    echo -e "${BOLD}Working changes:${NC}"
+    MODIFIED=$(cd "$WORKSPACE" 2>/dev/null && git diff --name-only 2>/dev/null)
+    UNTRACKED=$(cd "$WORKSPACE" 2>/dev/null && git ls-files --others --exclude-standard 2>/dev/null)
+    if [[ -n "$MODIFIED" || -n "$UNTRACKED" ]]; then
+        echo "$MODIFIED" | grep -v '^$' | while read -r f; do
+            echo -e "  ${YELLOW}~ $f${NC}"
         done
+        echo "$UNTRACKED" | grep -v '^$' | while read -r f; do
+            echo -e "  ${GREEN}+ $f${NC}"
+        done
+        TOTAL_FILES=$(echo -e "${MODIFIED}\n${UNTRACKED}" | grep -v '^$' | wc -l | tr -d ' ')
+        echo -e "  ${DIM}($TOTAL_FILES files)${NC}"
+    else
+        echo -e "  ${DIM}(clean)${NC}"
     fi
 
     # ── Task progress ────────────────────────────────────
