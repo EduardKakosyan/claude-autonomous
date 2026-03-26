@@ -6,7 +6,7 @@ PROJECT_DIR="$HOME/claude-autonomous/workspace"
 STATE_DIR="$HOME/claude-autonomous/scripts/state"
 LOG_DIR="$HOME/claude-autonomous/logs"
 MAX_RUNTIME=10800                # 3 hours hard timeout
-MAX_TURNS=50                     # ~50% of 5-hr window (~450 msgs avail)
+MAX_TURNS=200                    # ~50% of 5-hr window (~450 msgs avail)
 MAX_BUDGET="25.00"               # Shadow cost per run (USD)
 DAILY_BUDGET="25.00"             # Cumulative daily cap (USD)
 # Budget rationale: Max 20x has ~900 msgs / ~220K tokens per
@@ -38,6 +38,9 @@ cleanup() {
 }
 trap cleanup EXIT
 trap 'echo ""; echo "[$(date)] Interrupted by user"; exit 130' INT TERM
+
+# ── Fix .claude directory ownership (Docker volume issue) ──
+docker exec "$CONTAINER_NAME" sudo chown -R claude:claude /home/claude/.claude/ 2>/dev/null || true
 
 # ── Refresh OAuth credentials from host keychain ──────
 CREDS=$(security find-generic-password -s "Claude Code-credentials" \
