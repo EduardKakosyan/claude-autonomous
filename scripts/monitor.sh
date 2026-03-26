@@ -61,11 +61,24 @@ while true; do
         echo -e "${CYAN}Last run:${NC}  $LAST_DATE | \$$LAST_COST | $LAST_STATUS"
     fi
 
-    # ── Spending today ───────────────────────────────────
+    # ── Spending ─────────────────────────────────────────
     TODAY=$(date +%Y-%m-%d)
     SPEND=$(grep "$TODAY" "${STATE_DIR}/cost_history.jsonl" 2>/dev/null \
         | jq -s '[.[].cost] | add // 0' 2>/dev/null | tr -d '[:space:]' || echo "0")
-    echo -e "${CYAN}Spend:${NC}     \$$SPEND today"
+    # Live cost from current stream log
+    LATEST_STREAM=$(ls -t "$LOG_DIR"/stream_*.jsonl 2>/dev/null | head -1)
+    LIVE_COST="0"
+    LIVE_TURNS="0"
+    if [[ -n "$LATEST_STREAM" && -s "$LATEST_STREAM" ]]; then
+        LIVE_COST=$(tail -100 "$LATEST_STREAM" 2>/dev/null \
+            | jq -r 'select(.type=="assistant") | .message.usage.cache_creation_input_tokens // 0' 2>/dev/null \
+            | tail -1 || echo "0")
+        # Get running cost from the latest result-like message or sum from usage
+        LIVE_COST=$(grep '"type":"result"' "$LATEST_STREAM" 2>/dev/null \
+            | tail -1 | jq -r '.total_cost_usd // 0' 2>/dev/null || echo "0")
+        LIVE_TURNS=$(grep -c '"type":"assistant"' "$LATEST_STREAM" 2>/dev/null || echo "0")
+    fi
+    echo -e "${CYAN}Spend:${NC}     \$$SPEND completed today | ${YELLOW}Turn $LIVE_TURNS active${NC}"
 
     # ── Git activity ─────────────────────────────────────
     echo ""
