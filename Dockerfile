@@ -2,7 +2,7 @@ FROM debian:bookworm-slim
 
 RUN apt-get update && apt-get install -y \
     git curl sudo ca-certificates \
-    ripgrep fd-find jq tree htop unzip \
+    ripgrep fd-find jq tree htop unzip procps \
     nodejs npm make bc \
     iptables ipset socat \
     && rm -rf /var/lib/apt/lists/*

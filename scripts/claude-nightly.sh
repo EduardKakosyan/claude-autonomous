@@ -29,7 +29,7 @@ cleanup() {
     local exit_code=$?
     # Kill the background docker exec + claude process
     [[ -n "$CLAUDE_PID" ]] && kill "$CLAUDE_PID" 2>/dev/null || true
-    docker exec "$CONTAINER_NAME" sh -c 'kill $(ps aux | grep claude | grep -v grep | awk "{print \$2}")' 2>/dev/null || true
+    docker exec "$CONTAINER_NAME" pkill -f "claude -p" 2>/dev/null || true
     # Kill caffeinate
     kill %1 2>/dev/null || true
     echo "{\"ts\":\"$TIMESTAMP\",\"exit\":$exit_code}" \
@@ -121,6 +121,14 @@ PROMPT_EOF
 PROMPT=${PROMPT//PREV_STATE_PLACEHOLDER/$PREV_STATE}
 PROMPT=${PROMPT//GIT_LOG_PLACEHOLDER/$GIT_LOG}
 PROMPT=${PROMPT//GIT_STATUS_PLACEHOLDER/$GIT_STATUS}
+
+# ── Kill stale claude processes from previous runs ─────────
+STALE=$(docker exec "$CONTAINER_NAME" pgrep -f "claude -p" 2>/dev/null || true)
+if [[ -n "$STALE" ]]; then
+    echo "[$(date)] Killing stale claude processes: $STALE"
+    docker exec "$CONTAINER_NAME" pkill -f "claude -p" 2>/dev/null || true
+    sleep 2
+fi
 
 # ── Run Claude Code inside OrbStack container ──────────────
 echo "[$(date)] Starting nightly run"
