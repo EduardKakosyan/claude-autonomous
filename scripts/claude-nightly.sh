@@ -138,10 +138,12 @@ echo "  Max turns: $MAX_TURNS | Max budget: \$$MAX_BUDGET"
 # Run in background so Ctrl+C can kill this script immediately
 docker exec "$CONTAINER_NAME" \
     claude -p "$PROMPT" \
+        --bare \
         --output-format json \
         --max-turns "$MAX_TURNS" \
         --max-budget-usd "$MAX_BUDGET" \
         --dangerously-skip-permissions \
+        --no-session-persistence \
         --model claude-opus-4-6 \
     > "$RUN_LOG" 2>> "${LOG_DIR}/stderr.log" &
 CLAUDE_PID=$!
