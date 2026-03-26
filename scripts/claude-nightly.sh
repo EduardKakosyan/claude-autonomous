@@ -77,6 +77,13 @@ GIT_LOG=$(cd "$PROJECT_DIR" && git log --oneline -10 \
 GIT_STATUS=$(cd "$PROJECT_DIR" && git status --short \
     2>/dev/null || echo "clean")
 
+# ── Load operator message (if any) ────────────────────────
+OPERATOR_MSG=""
+if [[ -f "$PROJECT_DIR/OPERATOR.md" ]]; then
+    OPERATOR_MSG=$(cat "$PROJECT_DIR/OPERATOR.md")
+    echo "[$(date)] Operator message found — will be injected into prompt"
+fi
+
 # ── Build the prompt ───────────────────────────────────────
 # NOTE: The quality mandate and execution protocol below are
 # the default autonomous prompt. Override or extend this by
@@ -97,6 +104,9 @@ building the app described in CLAUDE.md and tasks.json.
 - Never leave code in a broken state. If tests fail and you
   cannot fix them within 2 turns, revert to the last passing
   commit.
+
+## Operator message (from OPERATOR.md — highest priority)
+OPERATOR_MSG_PLACEHOLDER
 
 ## Previous run summary
 PREV_STATE_PLACEHOLDER
@@ -121,6 +131,7 @@ Uncommitted: GIT_STATUS_PLACEHOLDER
 PROMPT_EOF
 
 # Inject dynamic state into prompt
+PROMPT=${PROMPT//OPERATOR_MSG_PLACEHOLDER/$OPERATOR_MSG}
 PROMPT=${PROMPT//PREV_STATE_PLACEHOLDER/$PREV_STATE}
 PROMPT=${PROMPT//GIT_LOG_PLACEHOLDER/$GIT_LOG}
 PROMPT=${PROMPT//GIT_STATUS_PLACEHOLDER/$GIT_STATUS}
