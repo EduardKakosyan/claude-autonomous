@@ -141,6 +141,7 @@ STREAM_LOG="${LOG_DIR}/stream_${TIMESTAMP}.jsonl"
 docker exec "$CONTAINER_NAME" \
     claude -p "$PROMPT" \
         --output-format stream-json \
+        --verbose \
         --max-turns "$MAX_TURNS" \
         --max-budget-usd "$MAX_BUDGET" \
         --dangerously-skip-permissions \
