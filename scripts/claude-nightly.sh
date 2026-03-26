@@ -125,7 +125,7 @@ echo "[$(date)] Starting nightly run"
 echo "  Budget spent today: \$$TODAYS_SPEND / \$$DAILY_BUDGET"
 echo "  Max turns: $MAX_TURNS | Max budget: \$$MAX_BUDGET"
 
-timeout ${MAX_RUNTIME} docker exec -i "$CONTAINER_NAME" \
+timeout ${MAX_RUNTIME} docker exec "$CONTAINER_NAME" \
     claude -p "$PROMPT" \
         --output-format json \
         --max-turns "$MAX_TURNS" \
