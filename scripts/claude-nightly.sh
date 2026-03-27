@@ -6,9 +6,9 @@ PROJECT_DIR="$HOME/claude-autonomous/workspace"
 STATE_DIR="$HOME/claude-autonomous/scripts/state"
 LOG_DIR="$HOME/claude-autonomous/logs"
 MAX_RUNTIME=10800                # 3 hours hard timeout
-MAX_TURNS=200                    # ~50% of 5-hr window (~450 msgs avail)
-MAX_BUDGET="25.00"               # Shadow cost per run (USD)
-DAILY_BUDGET="25.00"             # Cumulative daily cap (USD)
+MAX_TURNS=500                    # Maximize throughput per run
+MAX_BUDGET="100.00"              # Shadow cost per run (USD)
+DAILY_BUDGET="100.00"            # Cumulative daily cap (USD)
 # Budget rationale: Max 20x has ~900 msgs / ~220K tokens per
 # 5-hour rolling window. 50% = ~450 msgs. At ~50 turns with
 # high effort, each turn uses multiple API calls. $25 shadow
@@ -145,43 +145,73 @@ if [[ -n "$STALE" ]]; then
 fi
 
 # ── Run Claude Code inside OrbStack container ──────────────
-echo "[$(date)] Starting nightly run"
-echo "  Budget spent today: \$$TODAYS_SPEND / \$$DAILY_BUDGET"
-echo "  Max turns: $MAX_TURNS | Max budget: \$$MAX_BUDGET"
+MAX_RETRIES=5
+RETRY_DELAY=120  # 2 minutes between retries
 
-# Run in background so Ctrl+C can kill this script immediately
-# Stream JSON for live monitoring; final result parsed from last line
-STREAM_LOG="${LOG_DIR}/stream_${TIMESTAMP}.jsonl"
-docker exec "$CONTAINER_NAME" \
-    claude -p "$PROMPT" \
-        --output-format stream-json \
-        --verbose \
-        --max-turns "$MAX_TURNS" \
-        --max-budget-usd "$MAX_BUDGET" \
-        --dangerously-skip-permissions \
-        --no-session-persistence \
-        --model claude-opus-4-6 \
-    > "$STREAM_LOG" 2>> "${LOG_DIR}/stderr.log" &
-CLAUDE_PID=$!
+for ATTEMPT in $(seq 1 $MAX_RETRIES); do
+    echo "[$(date)] Starting run (attempt $ATTEMPT/$MAX_RETRIES)"
+    echo "  Budget spent today: \$$TODAYS_SPEND / \$$DAILY_BUDGET"
+    echo "  Max turns: $MAX_TURNS | Max budget: \$$MAX_BUDGET"
 
-# Wait with timeout — if interrupted, cleanup trap handles killing
-SECONDS=0
-while kill -0 "$CLAUDE_PID" 2>/dev/null; do
-    if [[ $SECONDS -ge $MAX_RUNTIME ]]; then
-        echo "[$(date)] Max runtime (${MAX_RUNTIME}s) reached. Killing."
-        kill "$CLAUDE_PID" 2>/dev/null || true
-        break
+    # Refresh credentials before each attempt (token may have refreshed)
+    CREDS=$(security find-generic-password -s "Claude Code-credentials" \
+        -a "$(whoami)" -w 2>/dev/null || true)
+    if [[ -n "$CREDS" ]]; then
+        docker exec "$CONTAINER_NAME" sudo bash -c \
+            "echo '$CREDS' > /home/claude/.claude/.credentials.json \
+            && chmod 600 /home/claude/.claude/.credentials.json \
+            && chown claude:claude /home/claude/.claude/.credentials.json" 2>/dev/null
     fi
-    sleep 1
+
+    # Stream JSON for live monitoring; final result parsed from last line
+    STREAM_LOG="${LOG_DIR}/stream_${TIMESTAMP}_attempt${ATTEMPT}.jsonl"
+    docker exec "$CONTAINER_NAME" \
+        claude -p "$PROMPT" \
+            --output-format stream-json \
+            --verbose \
+            --max-turns "$MAX_TURNS" \
+            --max-budget-usd "$MAX_BUDGET" \
+            --dangerously-skip-permissions \
+            --no-session-persistence \
+            --model claude-opus-4-6 \
+        > "$STREAM_LOG" 2>> "${LOG_DIR}/stderr.log" &
+    CLAUDE_PID=$!
+
+    # Wait with timeout — if interrupted, cleanup trap handles killing
+    SECONDS=0
+    while kill -0 "$CLAUDE_PID" 2>/dev/null; do
+        if [[ $SECONDS -ge $MAX_RUNTIME ]]; then
+            echo "[$(date)] Max runtime (${MAX_RUNTIME}s) reached. Killing."
+            kill "$CLAUDE_PID" 2>/dev/null || true
+            break
+        fi
+        sleep 1
+    done
+    wait "$CLAUDE_PID" 2>/dev/null || true
+
+    # Extract final result line from stream-json output
+    if [[ -s "$STREAM_LOG" ]]; then
+        grep '"type":"result"' "$STREAM_LOG" | tail -1 > "$RUN_LOG" 2>/dev/null || true
+    fi
+
+    # Check for transient errors (overloaded, auth expired) — retry if so
+    RESULT_TEXT=$(jq -r '.result // ""' "$RUN_LOG" 2>/dev/null || true)
+    if echo "$RESULT_TEXT" | grep -qiE "overloaded|529|401|authentication_error|rate.limit"; then
+        echo "[$(date)] Transient error detected: $(echo "$RESULT_TEXT" | head -c 100)"
+        if [[ $ATTEMPT -lt $MAX_RETRIES ]]; then
+            echo "[$(date)] Retrying in ${RETRY_DELAY}s..."
+            sleep "$RETRY_DELAY"
+            continue
+        else
+            echo "[$(date)] Max retries exhausted."
+        fi
+    fi
+
+    # Success or non-transient error — stop retrying
+    break
 done
-wait "$CLAUDE_PID" 2>/dev/null || true
 
 # ── Parse and persist results ──────────────────────────────
-# Extract final result line from stream-json output
-if [[ -s "$STREAM_LOG" ]]; then
-    # Last line with "type":"result" is the final summary
-    grep '"type":"result"' "$STREAM_LOG" | tail -1 > "$RUN_LOG" 2>/dev/null || true
-fi
 
 if [[ -s "$RUN_LOG" ]]; then
     COST=$(jq -r '.total_cost_usd // 0' "$RUN_LOG")
